@@ -1,0 +1,8 @@
+experiment:
+  alphabet: "ATCG"
+  reference_lengths: [500, 1000, 2000]
+  read_lengths: [30, 50, 100]
+  coverages: [3, 5, 10]
+  noise_rates: [0.0, 0.01, 0.05, 0.10]
+  seeds: [1, 2, 3]
+  timeout_seconds: 10
