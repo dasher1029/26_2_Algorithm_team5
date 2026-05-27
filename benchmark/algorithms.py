@@ -1,22 +1,20 @@
-"""Algorithm discovery and loading."""
+"""C++ algorithm discovery and compilation."""
 
 from __future__ import annotations
 
-import importlib.util
-import sys
+import os
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from types import ModuleType
-from typing import Callable, Dict, List
-
-
-AlgorithmFn = Callable[[List[str], int, Dict], str]
+from typing import List
 
 
 @dataclass(frozen=True)
 class AlgorithmSpec:
     name: str
     path: Path
+    executable_path: Path | None = None
+    compile_error: str = ""
 
 
 def discover_algorithms(directory: Path) -> List[AlgorithmSpec]:
@@ -24,28 +22,57 @@ def discover_algorithms(directory: Path) -> List[AlgorithmSpec]:
         return []
 
     specs = []
-    for path in sorted(directory.glob("*.py")):
-        if path.name == "template.py" or path.name.startswith("_"):
+    for path in sorted(directory.glob("*.cpp")):
+        if path.name == "template.cpp" or path.name.startswith("_"):
             continue
         specs.append(AlgorithmSpec(name=path.stem, path=path))
     return specs
 
 
-def load_module(path: Path) -> ModuleType:
-    algorithm_dir = str(path.parent.resolve())
-    if algorithm_dir not in sys.path:
-        sys.path.insert(0, algorithm_dir)
-    spec = importlib.util.spec_from_file_location(path.stem, path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot import algorithm file: {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def compile_algorithm(
+    algorithm: AlgorithmSpec,
+    build_dir: Path,
+    timeout_seconds: float = 20,
+) -> AlgorithmSpec:
+    build_dir.mkdir(parents=True, exist_ok=True)
+    suffix = ".exe" if os.name == "nt" else ""
+    executable_path = build_dir / f"{algorithm.name}{suffix}"
+    command = [
+        "g++",
+        "-std=c++17",
+        "-O2",
+        str(algorithm.path),
+        "-o",
+        str(executable_path),
+    ]
+
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return AlgorithmSpec(
+            algorithm.name,
+            algorithm.path,
+            compile_error=f"Compilation timed out after {timeout_seconds} seconds",
+        )
+    except OSError as exc:
+        return AlgorithmSpec(algorithm.name, algorithm.path, compile_error=str(exc))
+
+    if completed.returncode != 0:
+        error = (completed.stderr or completed.stdout).strip()
+        return AlgorithmSpec(algorithm.name, algorithm.path, compile_error=error)
+
+    return AlgorithmSpec(algorithm.name, algorithm.path, executable_path=executable_path)
 
 
-def load_reconstruct(path: Path) -> AlgorithmFn:
-    module = load_module(path)
-    reconstruct = getattr(module, "reconstruct", None)
-    if not callable(reconstruct):
-        raise AttributeError(f"{path} must define reconstruct(reads, reference_length, metadata)")
-    return reconstruct
+def compile_algorithms(
+    algorithms: List[AlgorithmSpec],
+    build_dir: Path,
+    timeout_seconds: float = 20,
+) -> List[AlgorithmSpec]:
+    return [compile_algorithm(algorithm, build_dir, timeout_seconds) for algorithm in algorithms]

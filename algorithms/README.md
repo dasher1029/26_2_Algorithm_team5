@@ -1,84 +1,71 @@
-# 알고리즘 제출 폴더
+# C++ 알고리즘 제출 폴더
 
-각 팀원은 이 폴더에 자신의 DNA 복원 알고리즘 Python 파일을 하나씩 추가합니다.
-
-예시:
+팀원 알고리즘은 이 폴더에 C++ 파일 하나로 제출합니다.
 
 ```text
 algorithms/
-  template.py
-  minsu.py
-  jiyoon.py
-  seoyeon.py
-  hyunwoo.py
+  template.cpp
+  minsu.cpp
+  jiyoon.cpp
+  seoyeon.cpp
+  hyunwoo.cpp
 ```
 
 ## 제출 규격
 
-각 알고리즘 파일에는 반드시 아래 함수가 있어야 합니다.
+Python benchmark runner가 각 `*.cpp` 파일을 `g++ -std=c++17 -O2`로 컴파일한 뒤 실행합니다.
 
-```python
-def reconstruct(reads, reference_length, metadata):
-    """복원한 DNA 문자열을 반환합니다."""
-    return ""
+제외되는 파일:
+
+- `template.cpp`
+- `_helper.cpp`처럼 `_`로 시작하는 파일
+- 기존 `*.py` 파일
+
+## 입력 형식
+
+알고리즘 실행 파일은 stdin에서 아래 순서로 입력을 받습니다.
+
+```text
+reference_length
+reference
+read_count
+read_1
+read_2
+...
+read_N
+metadata_count
+key=value
+key=value
+...
 ```
 
-입력값:
+주요 metadata key:
 
-- `reads`: 시뮬레이션된 DNA read 문자열 리스트
-- `reference_length`: 원본 reference DNA 문자열 길이
-- `metadata`: 실험 조건 정보가 들어 있는 dictionary
+- `alphabet`
+- `seed`
+- `reference_path`
+- `reference_start`
+- `genome_length`
+- `genome_mutation_rate`
+- `read_length`
+- `read_count`
+- `coverage`
+- `noise_rate`
+- `reference_length`
 
-`metadata`에 들어 있는 값:
+## 출력 형식
 
-- `alphabet`: 사용 문자, 기본값은 `"ATCG"`
-- `seed`: 랜덤 seed
-- `read_length`: read 길이
-- `read_count`: 생성된 read 개수
-- `coverage`: coverage 값
-- `noise_rate`: 염기 치환 noise 비율
-- `reference_length`: 원본 reference 길이
+stdout에는 복원한 DNA 문자열만 출력합니다.
 
-## 작성 방법
-
-1. `template.py`를 복사해서 자신의 이름으로 파일을 만듭니다.
-2. `reconstruct(...)` 함수 안에 알고리즘을 구현합니다.
-3. 복원한 DNA 문자열을 `str`로 반환합니다.
-
-예시:
-
-```python
-def reconstruct(reads, reference_length, metadata):
-    joined = "".join(reads)
-    return joined[:reference_length]
+```text
+ATCG...
 ```
 
-위 예시는 좋은 알고리즘이 아니라 함수 형식을 보여주기 위한 예시입니다.
+로그나 디버그 메시지는 stdout에 출력하지 마세요. 필요하면 stderr를 사용하세요.
 
-## 평가에서 제외되는 파일
+## 주의
 
-아래 파일은 benchmark runner가 실행하지 않습니다.
-
-- `template.py`
-- `_helper.py`처럼 `_`로 시작하는 파일
-
-공통 helper 함수가 필요하면 `_utils.py`처럼 `_`로 시작하는 파일에 둘 수 있습니다.
-
-## 포함된 예시 알고리즘
-
-이 폴더에는 형식 참고용 예시 알고리즘도 들어 있습니다.
-
-- `denovo_greedy.py`: read 사이의 suffix-prefix overlap을 이용해 de novo 방식으로 contig를 만드는 간단한 알고리즘
-- `bwt_overlap.py`: BWT 기반 k-mer index로 read 우선순위를 정한 뒤 greedy overlap assembly를 수행하는 예시
-- `position_table_mapping.py`: 허용 mismatch가 `e`개일 때 read를 `e + 1`개 구간으로 나누고, 적어도 한 구간은 exact match된다는 pigeonhole principle을 이용하는 position table mapping 예시
-
-이 예시들은 수업용 baseline/reference 구현입니다. 성능이 좋은 최종 알고리즘이라는 뜻은 아닙니다.
-
-## 주의사항
-
-- 함수 이름은 반드시 `reconstruct`여야 합니다.
-- 반환값은 반드시 문자열이어야 합니다.
-- 함수 안에서 `input()`을 호출하지 마세요.
-- 파일을 직접 읽거나 쓰지 않는 것을 권장합니다.
-- 너무 오래 실행되면 timeout으로 기록됩니다.
-- crash나 exception이 발생하면 해당 실험 row에 실패로 기록됩니다.
+- 알고리즘은 gold standard인 `my genome`을 직접 받지 않습니다.
+- 알고리즘은 mutation 전 reference slice와 reads를 입력으로 받아 read를 reference에 매핑하고, 추정한 my genome 문자열을 출력합니다.
+- 반환 문자열 길이가 gold standard와 달라도 benchmark는 edit distance 기반으로 평가합니다.
+- compile error, crash, timeout은 결과 CSV에 실패 row로 기록됩니다.

@@ -1,0 +1,9 @@
+services:
+  benchmark:
+    build: .
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    environment:
+      MPLCONFIGDIR: /workspace/.matplotlib_cache
+    command: python -m pytest

@@ -1,9 +1,11 @@
-from benchmark.metrics import edit_distance, normalized_accuracy
+from benchmark.metrics import normalized_accuracy, positional_distance
 
 
-def test_edit_distance():
-    assert edit_distance("ATCG", "ATGG") == 1
-    assert edit_distance("", "AT") == 2
+def test_positional_distance_counts_mismatches_and_length_difference():
+    assert positional_distance("ATCG", "ATGG") == 1
+    assert positional_distance("", "AT") == 2
+    assert positional_distance("ATCG", "AT") == 2
+    assert positional_distance("ATCG", "ATG") == 2
 
 
 def test_normalized_accuracy():

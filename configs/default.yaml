@@ -1,8 +1,11 @@
 experiment:
-  alphabet: "ATCG"
-  reference_lengths: [500, 1000, 2000]
-  read_lengths: [30, 50, 100]
-  coverages: [3, 5, 10]
-  noise_rates: [0.0, 0.01, 0.05, 0.10]
-  seeds: [1, 2, 3]
-  timeout_seconds: 10
+  alphabet: "ATCG" # DNA alphabet used to generate sequences
+  reference_path: "data/example_reference.txt" # Input reference genome text file
+  reference_starts: [0] # Start positions sliced from the reference
+  genome_lengths: [1000000] # Factor 1: synthetic genome lengths to test
+  genome_mutation_rates: [0.01] # Mutation rates applied when creating my genome
+  read_lengths: [30, 45] # Factor 2: read lengths to compare
+  coverages: [0.01] # Fixed average read coverage over the genome
+  noise_rates: [0.001] # Fixed sequencing noise rate applied to reads
+  seeds: [1] # Random seeds for reproducible experiments
+  timeout_seconds: 60 # Maximum runtime per algorithm run in seconds
