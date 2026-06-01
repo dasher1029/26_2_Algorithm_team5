@@ -72,24 +72,33 @@ Keep this section short and repo-wide. Put detailed workflow design in repo-loca
 
 ## What
 - This repository supports a university algorithm team project for DNA string reconstruction benchmarking.
-- The shared goal is to generate random DNA references over `A/T/C/G`, simulate reads under controlled variables, run each teammate's reconstruction algorithm, and compare performance.
+- The shared goal is to use a reference genome as the source, generate the team's own synthetic genome/read inputs under controlled variables, run each teammate's reconstruction algorithm, and compare performance.
+- Teammate reconstruction algorithms should be submitted as C++ `*.cpp` programs under `algorithms/`; Python owns the benchmark harness, tests, metrics, result recording, and graph/report generation.
+- Use the Docker-based environment for team-reproducible runs. The container supplies Python 3.9, `g++`, and Python dependencies so benchmark behavior does not depend on each teammate's local setup.
 - The main deliverable is the evaluation environment: experiment setup, runners, metrics, result recording, and visualization/reporting.
 - Do not implement teammates' reconstruction algorithms unless explicitly asked. Each of the four team members owns one algorithm submission.
 
 ## Why
-- The project should compare four algorithms fairly under the same inputs and controlled variables.
+- The project should compare four algorithms fairly under the same inputs and controlled variables, with a trivial baseline included as a simple experimental control.
+- Results should be compared against a gold standard so accuracy claims are anchored to a known correct sequence.
 - Experiments must be reproducible so results, graphs, and reports can be checked later.
 - Benchmark code should make it easy to vary one factor at a time and explain what changed.
 
 ## How
 - Keep changes simple and surgical. Avoid speculative framework code or extra abstractions.
-- Prefer deterministic experiment configs and seeded random generation.
+- Use external/reference genome data only as the reference source. Generate `my genome` and reads inside the benchmark pipeline, rather than importing pre-made personal genomes or read datasets.
+- Compile C++ submissions from Python and execute them through the documented stdin/stdout protocol. Do not require teammates to write Python wrappers.
+- Prefer `docker compose run --rm benchmark python -m pytest` and `docker compose run --rm benchmark python -m benchmark.run --quick --out results/quick` for verification. Use local `.venv` commands only as a fallback.
+- Prefer deterministic experiment configs and seeded random generation for synthetic genome/read creation.
+- Include one trivial reconstruction approach as a baseline comparator before evaluating more complex teammate algorithms.
+- Keep the gold standard sequence available for each experiment and use it consistently for metric calculation.
 - Record the full experiment parameters with every result row or output artifact.
 - Before running large experiments, include a small verification path that checks generation, read simulation, algorithm execution, and metric calculation end to end.
 - Use `.agents/skills/harness/SKILL.md` or `.codex/skills/harness/SKILL.md` for larger workflow or harness design instead of expanding this file.
 
 ## Evaluation Defaults
-- Controlled variables should include reference length, read length, read count or coverage, sequencing noise/error rate, and random seed.
+- Controlled variables should include reference source/region, synthetic genome length, read length, read count or coverage, sequencing noise/error rate, and random seed.
 - Primary metrics should include runtime, reconstruction accuracy or similarity to the reference, and failure/crash rate.
+- Every report should show each teammate algorithm beside the trivial baseline and the gold standard comparison result.
 - Track memory usage only if it can be measured without making the benchmark environment unnecessarily complex.
 - Graphs and tables must clearly label all controlled variables, fixed parameters, and measured metrics.

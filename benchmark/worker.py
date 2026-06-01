@@ -1,77 +1,59 @@
-"""Run algorithm submissions in isolated child processes."""
+"""Run compiled C++ algorithm submissions."""
 
 from __future__ import annotations
 
-import multiprocessing as mp
-import queue
+import subprocess
 import time
-import traceback
-import tracemalloc
-from pathlib import Path
 from typing import Any, Dict
 
-from benchmark.algorithms import AlgorithmSpec, load_reconstruct
+from benchmark.algorithms import AlgorithmSpec
 
 
-def _run_algorithm(
-    algorithm_path: str,
-    reads: list[str],
-    reference_length: int,
-    metadata: dict,
-    output: mp.Queue,
-) -> None:
-    tracemalloc.start()
-    started = time.perf_counter()
-    try:
-        reconstruct = load_reconstruct(Path(algorithm_path))
-        reconstruction = reconstruct(reads, reference_length, metadata)
-        if not isinstance(reconstruction, str):
-            raise TypeError("reconstruct(...) must return a string")
-        runtime = time.perf_counter() - started
-        _, peak = tracemalloc.get_traced_memory()
-        output.put(
-            {
-                "status": "ok",
-                "reconstruction": reconstruction,
-                "runtime_seconds": runtime,
-                "peak_memory_mb": peak / (1024 * 1024),
-                "error": "",
-            }
-        )
-    except Exception:
-        runtime = time.perf_counter() - started
-        _, peak = tracemalloc.get_traced_memory()
-        output.put(
-            {
-                "status": "crash",
-                "reconstruction": "",
-                "runtime_seconds": runtime,
-                "peak_memory_mb": peak / (1024 * 1024),
-                "error": traceback.format_exc(limit=3),
-            }
-        )
-    finally:
-        tracemalloc.stop()
+def _build_stdin(reference: str, reads: list[str], reference_length: int, metadata: dict) -> str:
+    lines = [str(reference_length), reference, str(len(reads))]
+    lines.extend(reads)
+    lines.append(str(len(metadata)))
+    for key in sorted(metadata):
+        lines.append(f"{key}={metadata[key]}")
+    return "\n".join(lines) + "\n"
 
 
 def run_with_timeout(
     algorithm: AlgorithmSpec,
+    reference: str,
     reads: list[str],
     reference_length: int,
     metadata: dict,
     timeout_seconds: float,
 ) -> Dict[str, Any]:
-    output: mp.Queue = mp.Queue()
-    process = mp.Process(
-        target=_run_algorithm,
-        args=(str(algorithm.path), reads, reference_length, metadata, output),
-    )
-    process.start()
-    process.join(timeout_seconds)
+    if algorithm.compile_error:
+        return {
+            "status": "crash",
+            "reconstruction": "",
+            "runtime_seconds": "",
+            "peak_memory_mb": "",
+            "error": f"Compilation failed:\n{algorithm.compile_error}",
+        }
+    if algorithm.executable_path is None:
+        return {
+            "status": "crash",
+            "reconstruction": "",
+            "runtime_seconds": "",
+            "peak_memory_mb": "",
+            "error": "Algorithm was not compiled before execution",
+        }
 
-    if process.is_alive():
-        process.terminate()
-        process.join(2)
+    started = time.perf_counter()
+    try:
+        completed = subprocess.run(
+            [str(algorithm.executable_path)],
+            input=_build_stdin(reference, reads, reference_length, metadata),
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
         return {
             "status": "timeout",
             "reconstruction": "",
@@ -79,14 +61,39 @@ def run_with_timeout(
             "peak_memory_mb": "",
             "error": f"Timed out after {timeout_seconds} seconds",
         }
-
-    try:
-        return output.get_nowait()
-    except queue.Empty:
+    except OSError as exc:
         return {
             "status": "crash",
             "reconstruction": "",
-            "runtime_seconds": "",
+            "runtime_seconds": time.perf_counter() - started,
             "peak_memory_mb": "",
-            "error": "Algorithm process exited without returning a result",
+            "error": str(exc),
         }
+
+    runtime = time.perf_counter() - started
+    if completed.returncode != 0:
+        return {
+            "status": "crash",
+            "reconstruction": "",
+            "runtime_seconds": runtime,
+            "peak_memory_mb": "",
+            "error": (completed.stderr or completed.stdout).strip(),
+        }
+
+    reconstruction = "".join(completed.stdout.split())
+    if not reconstruction:
+        return {
+            "status": "crash",
+            "reconstruction": "",
+            "runtime_seconds": runtime,
+            "peak_memory_mb": "",
+            "error": "Algorithm produced no reconstruction on stdout",
+        }
+
+    return {
+        "status": "ok",
+        "reconstruction": reconstruction,
+        "runtime_seconds": runtime,
+        "peak_memory_mb": "",
+        "error": "",
+    }
