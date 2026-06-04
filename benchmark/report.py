@@ -63,13 +63,29 @@ def _label(column: str) -> str:
         "reference_start": "Reference Start",
         "runtime_seconds": "Runtime (seconds)",
         "accuracy": "Accuracy",
+        "hamming_distance": "Hamming Distance",
+        "edit_distance": "Edit Distance",
+        "mutation_recall": "Mutation Recall",
+        "peak_memory_mb": "Peak Memory (MB)",
     }
     return labels.get(column, column.replace("_", " ").title())
 
 
+METRIC_COLUMNS = [
+    "accuracy",
+    "runtime_seconds",
+    "failure_rate",
+    "hamming_distance",
+    "edit_distance",
+    "mutation_recall",
+    "variant_count",
+    "peak_memory_mb",
+]
+
+
 def _numeric_columns(data: pd.DataFrame) -> pd.DataFrame:
     converted = data.copy()
-    for column in FACTOR_COLUMNS + ["accuracy", "runtime_seconds", "failure_rate"]:
+    for column in FACTOR_COLUMNS + METRIC_COLUMNS:
         if column in converted.columns:
             converted[column] = pd.to_numeric(converted[column], errors="coerce")
     return converted
@@ -282,14 +298,23 @@ def _summary_table(data: pd.DataFrame) -> str:
     if data.empty:
         return "<p>No benchmark rows were recorded.</p>"
 
+    aggregations = {
+        "runs": ("algorithm", "size"),
+        "ok_runs": ("status", lambda values: int((values == "ok").sum())),
+        "mean_accuracy": ("accuracy", "mean"),
+        "mean_runtime_seconds": ("runtime_seconds", "mean"),
+    }
+    for column, alias in (
+        ("edit_distance", "mean_edit_distance"),
+        ("mutation_recall", "mean_mutation_recall"),
+        ("peak_memory_mb", "mean_peak_memory_mb"),
+    ):
+        if column in data.columns:
+            aggregations[alias] = (column, "mean")
+
     summary = (
         data.groupby("algorithm", as_index=False)
-        .agg(
-            runs=("algorithm", "size"),
-            ok_runs=("status", lambda values: int((values == "ok").sum())),
-            mean_accuracy=("accuracy", "mean"),
-            mean_runtime_seconds=("runtime_seconds", "mean"),
-        )
+        .agg(**aggregations)
         .sort_values(["mean_accuracy", "mean_runtime_seconds"], ascending=[False, True])
     )
     return summary.to_html(index=False, float_format=lambda value: f"{value:.4f}", border=0)

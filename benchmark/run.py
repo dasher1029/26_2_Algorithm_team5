@@ -12,7 +12,7 @@ import yaml
 
 from benchmark.algorithms import AlgorithmSpec, compile_algorithms, discover_algorithms
 from benchmark.dna import ExperimentCase, build_experiment_inputs
-from benchmark.metrics import normalized_accuracy
+from benchmark.metrics import edit_distance, mutation_recall, normalized_accuracy
 from benchmark.report import build_report
 from benchmark.worker import run_with_timeout
 
@@ -24,7 +24,11 @@ RESULT_FIELDS = [
     "status",
     "runtime_seconds",
     "accuracy",
+    "hamming_distance",
     "edit_distance",
+    "edit_distance_capped",
+    "mutation_recall",
+    "variant_count",
     "reference_path",
     "reference_start",
     "reference_length",
@@ -123,17 +127,30 @@ def _result_row(
     status: str,
     runtime_seconds: float | str,
     reconstruction: str,
+    reference: str,
     gold_standard: str,
     peak_memory_mb: float | str = "",
     error: str = "",
 ) -> dict:
-    accuracy, distance = normalized_accuracy(gold_standard, reconstruction) if status == "ok" else (0.0, "")
+    if status == "ok":
+        accuracy, hamming = normalized_accuracy(gold_standard, reconstruction)
+        edit, edit_exact = edit_distance(gold_standard, reconstruction)
+        recall, variant_count = mutation_recall(reference, gold_standard, reconstruction)
+        edit_capped = not edit_exact
+        recall_cell: float | str = "" if recall is None else recall
+    else:
+        accuracy, hamming, edit, edit_capped = 0.0, "", "", ""
+        recall_cell, variant_count = "", ""
     return {
         "algorithm": algorithm_name,
         "status": status,
         "runtime_seconds": runtime_seconds,
         "accuracy": accuracy,
-        "edit_distance": distance,
+        "hamming_distance": hamming,
+        "edit_distance": edit,
+        "edit_distance_capped": edit_capped,
+        "mutation_recall": recall_cell,
+        "variant_count": variant_count,
         "reference_path": case.reference_path,
         "reference_start": case.reference_start,
         "reference_length": case.reference_length,
@@ -151,9 +168,9 @@ def _result_row(
     }
 
 
-def run_builtin_baseline(case: ExperimentCase, gold_standard: str, reads: list[str]) -> dict:
+def run_builtin_baseline(case: ExperimentCase, reference: str, gold_standard: str, reads: list[str]) -> dict:
     reconstruction = _trivial_concat(reads, case.reference_length, {"alphabet": case.alphabet})
-    return _result_row(TRIVIAL_BASELINE_NAME, case, "ok", 0.0, reconstruction, gold_standard)
+    return _result_row(TRIVIAL_BASELINE_NAME, case, "ok", 0.0, reconstruction, reference, gold_standard)
 
 
 def run_case(
@@ -173,6 +190,7 @@ def run_case(
         result["status"],
         result["runtime_seconds"],
         reconstruction,
+        reference,
         gold_standard,
         result.get("peak_memory_mb", ""),
         result.get("error", ""),
@@ -212,7 +230,7 @@ def run_benchmark(
     completed_runs = 0
     for case in cases:
         reference, gold_standard, reads = build_experiment_inputs(case)
-        baseline_row = run_builtin_baseline(case, gold_standard, reads)
+        baseline_row = run_builtin_baseline(case, reference, gold_standard, reads)
         rows.append(baseline_row)
         completed_runs += 1
         print(
