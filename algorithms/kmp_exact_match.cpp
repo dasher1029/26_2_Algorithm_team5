@@ -6,165 +6,202 @@
 
 using namespace std;
 
-vector<int> prefix_function(const string& text) {
-    vector<int> pi(text.size(), 0);
-    for (int i = 1; i < (int)text.size(); ++i) {
-        int j = pi[i - 1];
-        while (j > 0 && text[i] != text[j]) {
+// 실패 함수(pi 배열) 계산
+vector<int> compute_pi(const string& pattern) {
+    int m = pattern.size();
+    vector<int> pi(m, 0);
+    int j = 0;
+    for (int i = 1; i < m; ++i) {
+        while (j > 0 && pattern[i] != pattern[j]) {
             j = pi[j - 1];
         }
-        if (text[i] == text[j]) {
-            ++j;
+        if (pattern[i] == pattern[j]) {
+            pi[i] = ++j;
         }
-        pi[i] = j;
     }
     return pi;
 }
 
+// 텍스트에서 패턴의 매칭 시작 위치들을 찾음
 vector<int> kmp_search(const string& text, const string& pattern) {
     vector<int> matches;
     if (pattern.empty() || pattern.size() > text.size()) {
         return matches;
     }
 
-    string combined = pattern + "#" + text;
-    vector<int> pi = prefix_function(combined);
-    int pattern_length = pattern.size();
-    for (int i = pattern_length + 1; i < (int)combined.size(); ++i) {
-        if (pi[i] == pattern_length) {
-            matches.push_back(i - 2 * pattern_length);
+    vector<int> pi = compute_pi(pattern);
+    int n = text.size();
+    int m = pattern.size();
+    int j = 0;
+    
+    for (int i = 0; i < n; ++i) {
+        while (j > 0 && text[i] != pattern[j]) {
+            j = pi[j - 1];
+        }
+        if (text[i] == pattern[j]) {
+            if (j == m - 1) {
+                matches.push_back(i - m + 1);
+                j = pi[j]; // 다음 매칭을 위해 복원
+            } else {
+                j++;
+            }
         }
     }
     return matches;
 }
 
-int base_index(char base) {
-    if (base == 'A') return 0;
-    if (base == 'C') return 1;
-    if (base == 'G') return 2;
-    if (base == 'T') return 3;
+// DNA 염기 기호를 정수 인덱스(0~3)로 변환
+int char_to_idx(char c) {
+    if (c == 'A') return 0;
+    if (c == 'C') return 1;
+    if (c == 'G') return 2;
+    if (c == 'T') return 3;
+
     return -1;
 }
 
-char index_base(int index) {
-    static const string bases = "ACGT";
-    return bases[index];
+// 정수 인덱스(0~3)를 DNA 염기 기호로 변환
+char idx_to_char(int idx) {
+    if (idx == 0) return 'A';
+    if (idx == 1) return 'C';
+    if (idx == 2) return 'G';
+    if (idx == 3) return 'T';
+
+    return 'A';
 }
 
-map<string, string> read_metadata(int metadata_count) {
+// 표준 입력에서 key=value 메타데이터 파싱
+map<string, string> parse_metadata(int count) {
     map<string, string> metadata;
-    string line;
-    getline(cin, line);
-    for (int i = 0; i < metadata_count; ++i) {
+    string dummy;
+    getline(cin, dummy); // 입력 버퍼 비우기 (개행 문자 제거)
+    
+    for (int i = 0; i < count; ++i) {
+        string line;
         getline(cin, line);
-        size_t equals = line.find('=');
-        if (equals != string::npos) {
-            metadata[line.substr(0, equals)] = line.substr(equals + 1);
+        size_t eq_pos = line.find('=');
+        if (eq_pos != string::npos) {
+            string key = line.substr(0, eq_pos);
+            string val = line.substr(eq_pos + 1);
+            metadata[key] = val;
         }
     }
     return metadata;
 }
 
-int metadata_int(const map<string, string>& metadata, const string& key, int default_value) {
-    auto found = metadata.find(key);
-    if (found == metadata.end()) {
-        return default_value;
-    }
-    return stoi(found->second);
-}
-
-vector<pair<int, string>> split_seeds(const string& read, int allowed_mismatches) {
-    int segment_count = max(1, allowed_mismatches + 1);
-    int base_size = read.size() / segment_count;
-    int remainder = read.size() % segment_count;
+// 비둘기집 원리에 따라 리드를 (allowed_mismatches + 1)개의 세그먼트(seed)로 분할
+vector<pair<int, string>> split_into_seeds(const string& read, int allowed_mismatches) {
+    int k = max(1, allowed_mismatches + 1);
+    int base_size = read.size() / k;
+    int remainder = read.size() % k;
 
     vector<pair<int, string>> seeds;
     int start = 0;
-    for (int i = 0; i < segment_count; ++i) {
-        int size = base_size + (i < remainder ? 1 : 0);
-        if (size > 0) {
-            seeds.push_back({start, read.substr(start, size)});
+    for (int i = 0; i < k; ++i) {
+        int cur_size = base_size + (i < remainder ? 1 : 0);
+        if (cur_size > 0) {
+            seeds.push_back({start, read.substr(start, cur_size)});
         }
-        start += size;
+        start += cur_size;
     }
     return seeds;
 }
 
-int mismatch_count(const string& reference, const string& read, int start) {
+// 두 문자열 간의 불일치(mismatch) 수 계산
+int get_mismatch_count(const string& reference, const string& read, int ref_start) {
     int mismatches = 0;
     for (int i = 0; i < (int)read.size(); ++i) {
-        if (reference[start + i] != read[i]) {
-            ++mismatches;
+        if (reference[ref_start + i] != read[i]) {
+            mismatches++;
         }
     }
     return mismatches;
 }
 
-int find_best_position(const string& reference, const string& read, int allowed_mismatches) {
+// 리드가 레퍼런스 상에서 가장 잘 매칭되는 시작 위치를 찾음
+int find_best_alignment(const string& reference, const string& read, int allowed_mismatches) {
     int best_start = -1;
-    int best_mismatches = allowed_mismatches + 1;
+    int min_mismatches = allowed_mismatches + 1;
 
-    for (const auto& seed : split_seeds(read, allowed_mismatches)) {
+    // 리드를 조각내어 매칭 후보를 찾음
+    vector<pair<int, string>> seeds = split_into_seeds(read, allowed_mismatches);
+    for (const auto& seed : seeds) {
         int seed_offset = seed.first;
         const string& pattern = seed.second;
-        for (int seed_position : kmp_search(reference, pattern)) {
-            int candidate_start = seed_position - seed_offset;
+
+        // 조각(seed)이 레퍼런스에 정확히 일치하는 위치들을 KMP로 탐색
+        for (int matched_pos : kmp_search(reference, pattern)) {
+            int candidate_start = matched_pos - seed_offset;
+            
+            // 유효한 범위 체크
             if (candidate_start < 0 || candidate_start + (int)read.size() > (int)reference.size()) {
                 continue;
             }
 
-            int mismatches = mismatch_count(reference, read, candidate_start);
-            if (mismatches < best_mismatches) {
-                best_mismatches = mismatches;
+            int current_mismatches = get_mismatch_count(reference, read, candidate_start);
+            if (current_mismatches < min_mismatches) {
+                min_mismatches = current_mismatches;
                 best_start = candidate_start;
-                if (best_mismatches == 0) {
+                
+                // 완벽한 매칭(0 오차)을 발견하면 즉시 탐색 종료
+                if (min_mismatches == 0) {
                     return best_start;
                 }
             }
         }
     }
 
-    if (best_mismatches <= allowed_mismatches) {
+    if (min_mismatches <= allowed_mismatches) {
         return best_start;
     }
     return -1;
 }
 
-string build_consensus(const string& reference, const vector<pair<int, string>>& placements) {
-    vector<vector<int>> counts(reference.size(), vector<int>(4, 0));
-    for (int i = 0; i < (int)reference.size(); ++i) {
-        int index = base_index(reference[i]);
-        if (index >= 0) {
-            counts[i][index] = 1;
+// 정렬된 리드 정보를 바탕으로 레퍼런스의 각 위치에서 다수결로 서열 복원
+string reconstruct_consensus(const string& reference, const vector<pair<int, string>>& placements) {
+    int n = reference.size();
+    vector<vector<int>> counts(n, vector<int>(4, 0));
+    
+    // 기본값으로 레퍼런스 게놈의 염기를 카운트에 기여시킴 (기초 가중치)
+    for (int i = 0; i < n; ++i) {
+        int idx = char_to_idx(reference[i]);
+        if (idx >= 0) {
+            counts[i][idx] = 1;
         }
     }
 
-    for (const auto& placement : placements) {
-        int start = placement.first;
-        const string& read = placement.second;
+    // 각 리드들의 매칭 위치를 기반으로 카운트 누적
+    for (const auto& p : placements) {
+        int start = p.first;
+        const string& read = p.second;
         for (int i = 0; i < (int)read.size(); ++i) {
-            int index = base_index(read[i]);
-            int position = start + i;
-            if (index >= 0 && 0 <= position && position < (int)reference.size()) {
-                counts[position][index] += 1;
+            int idx = char_to_idx(read[i]);
+            int pos = start + i;
+            if (idx >= 0 && pos >= 0 && pos < n) {
+                counts[pos][idx]++;
             }
         }
     }
 
+    // 다수결로 최종 서열 재구성
     string reconstruction = reference;
-    for (int i = 0; i < (int)counts.size(); ++i) {
-        int best = 0;
+    for (int i = 0; i < n; ++i) {
+        int best_idx = 0;
         for (int j = 1; j < 4; ++j) {
-            if (counts[i][j] > counts[i][best]) {
-                best = j;
+            if (counts[i][j] > counts[i][best_idx]) {
+                best_idx = j;
             }
         }
-        reconstruction[i] = index_base(best);
+        reconstruction[i] = idx_to_char(best_idx);
     }
     return reconstruction;
 }
 
 int main() {
+    // 빠른 입출력 설정
+    ios_base::sync_with_stdio(false);
+    cin.tie(NULL);
+
     int reference_length = 0;
     string reference;
     int read_count = 0;
@@ -177,19 +214,27 @@ int main() {
 
     int metadata_count = 0;
     cin >> metadata_count;
-    map<string, string> metadata = read_metadata(metadata_count);
-    int allowed_mismatches = metadata_int(metadata, "allowed_mismatches", 2);
+    map<string, string> metadata = parse_metadata(metadata_count);
 
+    // 메타데이터에 allowed_mismatches가 있으면 그 값으로 업데이트, 없으면 기본값은 2
+    int allowed_mismatches = 2;
+    if (metadata.find("allowed_mismatches") != metadata.end()) {
+        allowed_mismatches = stoi(metadata["allowed_mismatches"]);
+    }
+
+    // 각 리드의 최적 배치 찾기
     vector<pair<int, string>> placements;
     for (const string& read : reads) {
-        int start = find_best_position(reference, read, allowed_mismatches);
+        int start = find_best_alignment(reference, read, allowed_mismatches);
         if (start >= 0) {
             placements.push_back({start, read});
         }
     }
 
-    string reconstruction = build_consensus(reference, placements);
+    // 최종 서열 복원
+    string reconstruction = reconstruct_consensus(reference, placements);
     reconstruction.resize(reference_length, 'A');
     cout << reconstruction << "\n";
+
     return 0;
 }
