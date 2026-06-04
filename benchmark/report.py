@@ -161,7 +161,7 @@ def _accuracy_break(values: pd.Series) -> tuple[float, float] | None:
 
 
 def _axis_break(values: pd.Series, metric: str) -> tuple[float, float] | None:
-    if metric == "runtime_seconds":
+    if metric in {"runtime_seconds", "peak_memory_mb"}:
         return _runtime_break(values)
     if metric == "accuracy":
         return _accuracy_break(values)
@@ -351,13 +351,20 @@ def _save_factor_figures(
             f"Runtime by {_label(factor)}",
             f"Shows how execution time changes as {_label(factor).lower()} changes.",
         ),
+        (
+            "peak_memory_mb",
+            "Peak Memory (MB)",
+            f"memory_by_{factor}.png",
+            f"Peak Memory by {_label(factor)}",
+            f"Shows how peak memory usage changes as {_label(factor).lower()} changes.",
+        ),
     ]
     for y, ylabel, filename, title, description in outputs:
         path = figures_dir / filename
         plot_data = ok.dropna(subset=[factor, y])
         if plot_data.empty:
             continue
-        if y in {"accuracy", "runtime_seconds"}:
+        if y in {"accuracy", "runtime_seconds", "peak_memory_mb"}:
             _save_broken_lineplot(plot_data, factor, y, title, ylabel, path)
         else:
             _save_lineplot(plot_data, factor, y, title, ylabel, path)
@@ -381,12 +388,15 @@ def create_figures(results_csv: Path, output_dir: Path) -> list[FigureSpec]:
     figures: list[FigureSpec] = []
 
     if not ok.empty:
+        summary_aggregations = {
+            "accuracy": ("accuracy", "mean"),
+            "runtime_seconds": ("runtime_seconds", "mean"),
+        }
+        if "peak_memory_mb" in ok.columns:
+            summary_aggregations["peak_memory_mb"] = ("peak_memory_mb", "mean")
         summary = (
             ok.groupby("algorithm", as_index=False)
-            .agg(
-                accuracy=("accuracy", "mean"),
-                runtime_seconds=("runtime_seconds", "mean"),
-            )
+            .agg(**summary_aggregations)
             .sort_values(["accuracy", "runtime_seconds"], ascending=[False, True])
         )
         accuracy_summary = figures_dir / "summary_accuracy_by_algorithm.png"
@@ -422,6 +432,28 @@ def create_figures(results_csv: Path, output_dir: Path) -> list[FigureSpec]:
                 "Compares average runtime across all successful runs.",
             )
         )
+
+        if "peak_memory_mb" in summary.columns:
+            memory_summary_data = summary.dropna(subset=["peak_memory_mb"])
+        else:
+            memory_summary_data = pd.DataFrame()
+        if not memory_summary_data.empty:
+            memory_summary = figures_dir / "summary_memory_by_algorithm.png"
+            _save_broken_barplot(
+                memory_summary_data,
+                "algorithm",
+                "peak_memory_mb",
+                "Mean Peak Memory by Algorithm",
+                "Mean Peak Memory (MB)",
+                memory_summary,
+            )
+            figures.append(
+                FigureSpec(
+                    memory_summary,
+                    "Mean Peak Memory by Algorithm",
+                    "Compares average peak memory usage across all successful runs.",
+                )
+            )
 
         for factor in _varied_factors(ok):
             figures.extend(_save_factor_figures(ok, factor, figures_dir))
