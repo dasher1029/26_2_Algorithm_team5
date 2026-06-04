@@ -1,0 +1,11 @@
+experiment:
+  alphabet: "ATCG" # DNA alphabet used to generate sequences
+  reference_path: "data/example_reference.txt" # Input reference genome text file
+  reference_starts: [0] # Start positions sliced from the reference
+  genome_lengths: [100000] # Hold genome size fixed; sweep coverage alone
+  genome_mutation_rates: [0.01] # Mutation rate applied when creating my genome
+  read_lengths: [30] # Single read length so the coverage effect is isolated
+  coverages: [2, 5, 10] # Factor under study: consensus needs >=2 reads per locus to outvote the reference prior
+  noise_rates: [0.001] # Fixed sequencing noise rate applied to reads
+  seeds: [1] # Random seeds for reproducible experiments
+  timeout_seconds: 180 # Raised: read_count grows ~5x at cov=10, O(M^2) assemblers slow down

@@ -57,7 +57,13 @@ def reconstruct(reads: list[str], reference_length: int, metadata: dict) -> str:
 
 Files named `template.py` or starting with `_` are excluded from discovery. Shared helpers go in `_utils.py`-style `_`-prefixed files. The algorithm's parent directory is prepended to `sys.path`, so siblings like `_assembly_utils.py` are importable.
 
-**Result CSV columns:** `algorithm`, `status` (`ok`/`crash`/`timeout`), `runtime_seconds`, `accuracy`, `edit_distance`, `reference_length`, `read_length`, `coverage`, `read_count`, `noise_rate`, `seed`, `reconstructed_length`, `length_ratio`, `peak_memory_mb`, `error`.
+**Result CSV columns:** `algorithm`, `status` (`ok`/`crash`/`timeout`), `runtime_seconds`, `accuracy`, `hamming_distance`, `edit_distance`, `edit_distance_capped`, `mutation_recall`, `variant_count`, `reference_length`, `read_length`, `coverage`, `read_count`, `noise_rate`, `seed`, `reconstructed_length`, `length_ratio`, `peak_memory_mb`, `error`.
+
+Metric notes:
+- `accuracy` / `hamming_distance` are position-by-position (frame-shift sensitive). A single indel tanks them — fair to mappers, harsh on de-novo assemblers that emit a shifted contig.
+- `edit_distance` is a shift-tolerant banded Levenshtein (`metrics.edit_distance`, single pass at band 64). `edit_distance_capped=True` means the result exceeded the band (e.g. substitution-heavy output), so it's a valid upper bound — read `hamming_distance` for magnitude.
+- `mutation_recall` = fraction of true variant loci (`reference != gold_standard`) the reconstruction recovered; `variant_count` is the denominator. Blank when there are no variants. Exposes consensus failures that overall `accuracy` hides.
+- `peak_memory_mb` is the algorithm process's max RSS, measured via `benchmark/_memwrap.py` (`RUSAGE_CHILDREN`); `runtime_seconds` is the child wall time it reports, excluding wrapper startup.
 
 **Included reference implementations** (baselines, not the final answer):
 - `denovo_greedy.py` — suffix-prefix overlap greedy assembly
