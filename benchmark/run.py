@@ -17,8 +17,6 @@ from benchmark.report import build_report
 from benchmark.worker import run_with_timeout
 
 
-TRIVIAL_BASELINE_NAME = "trivial_concat"
-
 RESULT_FIELDS = [
     "algorithm",
     "status",
@@ -97,13 +95,6 @@ def iter_cases(config: Dict[str, Any]) -> Iterable[ExperimentCase]:
         )
 
 
-def _trivial_concat(reads: list[str], reference_length: int, metadata: dict) -> str:
-    joined = "".join(reads)
-    if len(joined) >= reference_length:
-        return joined[:reference_length]
-    return joined.ljust(reference_length, metadata.get("alphabet", "A")[0])
-
-
 def _metadata(case: ExperimentCase) -> dict:
     return {
         "alphabet": case.alphabet,
@@ -168,11 +159,6 @@ def _result_row(
     }
 
 
-def run_builtin_baseline(case: ExperimentCase, reference: str, gold_standard: str, reads: list[str]) -> dict:
-    reconstruction = _trivial_concat(reads, case.reference_length, {"alphabet": case.alphabet})
-    return _result_row(TRIVIAL_BASELINE_NAME, case, "ok", 0.0, reconstruction, reference, gold_standard)
-
-
 def run_case(
     algorithm: AlgorithmSpec,
     case: ExperimentCase,
@@ -216,30 +202,20 @@ def run_benchmark(
         compile_timeout_seconds,
     )
     cases = list(iter_cases(config))
-    total_runs = len(cases) * (len(algorithms) + 1)
+    total_runs = len(cases) * len(algorithms)
     if algorithms:
         print(f"Discovered {len(algorithms)} algorithm(s): {', '.join(a.name for a in algorithms)}")
         failed_compiles = [algorithm for algorithm in algorithms if algorithm.compile_error]
         for algorithm in failed_compiles:
             print(f"Compilation failed for {algorithm.name}; recording crash rows.")
     else:
-        print(f"No algorithm files found in {algorithms_dir}. Running built-in baseline only.")
+        print(f"No algorithm files found in {algorithms_dir}. No benchmark rows will be recorded.")
     print(f"Planned benchmark runs: {total_runs}")
 
     rows: List[dict] = []
     completed_runs = 0
     for case in cases:
         reference, gold_standard, reads = build_experiment_inputs(case)
-        baseline_row = run_builtin_baseline(case, reference, gold_standard, reads)
-        rows.append(baseline_row)
-        completed_runs += 1
-        print(
-            f"[{completed_runs}/{total_runs}] {TRIVIAL_BASELINE_NAME} "
-            f"genome={case.reference_length} read={case.read_length} "
-            f"cov={case.coverage:g} noise={case.noise_rate:g} "
-            f"mut={case.genome_mutation_rate:g} seed={case.seed} -> ok "
-            f"acc={float(baseline_row['accuracy']):.4f}"
-        )
         for algorithm in algorithms:
             row = run_case(algorithm, case, reference, gold_standard, reads, timeout_seconds)
             rows.append(row)
