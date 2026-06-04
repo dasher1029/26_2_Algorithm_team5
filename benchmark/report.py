@@ -21,6 +21,8 @@ import seaborn as sns
 
 
 FIGURE_DPI = 180
+BROKEN_AXIS_RATIO = 8.0
+ACCURACY_BREAK_GAP = 0.15
 FACTOR_COLUMNS = [
     "reference_length",
     "read_length",
@@ -110,6 +112,155 @@ def _save_lineplot(
     plt.tight_layout()
     plt.savefig(output, dpi=FIGURE_DPI)
     plt.close()
+
+
+def _runtime_break(values: pd.Series) -> tuple[float, float] | None:
+    positive = values.dropna()
+    positive = positive[positive > 0].sort_values()
+    if len(positive) < 3:
+        return None
+
+    best_low = 0.0
+    best_high = 0.0
+    best_ratio = 0.0
+    for index in range(len(positive) - 1):
+        low = float(positive.iloc[index])
+        high = float(positive.iloc[index + 1])
+        ratio = high / low
+        if ratio > best_ratio:
+            best_low = low
+            best_high = high
+            best_ratio = ratio
+
+    if best_low <= 0 or best_ratio < BROKEN_AXIS_RATIO:
+        return None
+    return best_low * 1.25, best_high * 0.85
+
+
+def _accuracy_break(values: pd.Series) -> tuple[float, float] | None:
+    scores = values.dropna()
+    scores = scores[(scores >= 0) & (scores <= 1)].sort_values()
+    if len(scores) < 3:
+        return None
+
+    best_low = 0.0
+    best_high = 0.0
+    best_gap = 0.0
+    for index in range(len(scores) - 1):
+        low = float(scores.iloc[index])
+        high = float(scores.iloc[index + 1])
+        gap = high - low
+        if gap > best_gap:
+            best_low = low
+            best_high = high
+            best_gap = gap
+
+    if best_gap < ACCURACY_BREAK_GAP:
+        return None
+    return min(best_low + 0.05, 0.95), max(best_high - 0.02, 0.0)
+
+
+def _axis_break(values: pd.Series, metric: str) -> tuple[float, float] | None:
+    if metric == "runtime_seconds":
+        return _runtime_break(values)
+    if metric == "accuracy":
+        return _accuracy_break(values)
+    return None
+
+
+def _top_ylim(data: pd.DataFrame, y: str, upper_min: float) -> tuple[float, float]:
+    if y == "accuracy":
+        return upper_min, 1.02
+    return upper_min, float(data[y].max()) * 1.08
+
+
+def _add_break_marks(top_axis, bottom_axis) -> None:
+    kwargs = dict(marker=[(-1, -0.5), (1, 0.5)], markersize=11, linestyle="none", color="k", mec="k", mew=1)
+    top_axis.plot([0, 1], [0, 0], transform=top_axis.transAxes, clip_on=False, **kwargs)
+    bottom_axis.plot([0, 1], [1, 1], transform=bottom_axis.transAxes, clip_on=False, **kwargs)
+
+
+def _save_broken_barplot(
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    title: str,
+    ylabel: str,
+    output: Path,
+) -> None:
+    split = _axis_break(data[y], y)
+    if split is None:
+        _save_barplot(data, x, y, title, ylabel, output)
+        return
+
+    lower_max, upper_min = split
+    figure, (top_axis, bottom_axis) = plt.subplots(
+        2,
+        1,
+        sharex=True,
+        gridspec_kw={"height_ratios": [1, 2], "hspace": 0.05},
+        figsize=(10, 6.4),
+    )
+    sns.barplot(data=data, x=x, y=y, ax=top_axis)
+    sns.barplot(data=data, x=x, y=y, ax=bottom_axis)
+
+    top_axis.set_ylim(*_top_ylim(data, y, upper_min))
+    bottom_axis.set_ylim(0, lower_max)
+    top_axis.set_title(title)
+    top_axis.set_xlabel("")
+    top_axis.set_ylabel(ylabel)
+    bottom_axis.set_xlabel(_label(x))
+    bottom_axis.set_ylabel(ylabel)
+    top_axis.spines["bottom"].set_visible(False)
+    bottom_axis.spines["top"].set_visible(False)
+    bottom_axis.tick_params(axis="x", rotation=25)
+    for label in bottom_axis.get_xticklabels():
+        label.set_ha("right")
+    _add_break_marks(top_axis, bottom_axis)
+    figure.subplots_adjust(left=0.10, right=0.97, bottom=0.16, top=0.90, hspace=0.06)
+    figure.savefig(output, dpi=FIGURE_DPI)
+    plt.close(figure)
+
+
+def _save_broken_lineplot(
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    title: str,
+    ylabel: str,
+    output: Path,
+) -> None:
+    split = _axis_break(data[y], y)
+    if split is None:
+        _save_lineplot(data, x, y, title, ylabel, output)
+        return
+
+    lower_max, upper_min = split
+    figure, (top_axis, bottom_axis) = plt.subplots(
+        2,
+        1,
+        sharex=True,
+        gridspec_kw={"height_ratios": [1, 2], "hspace": 0.05},
+        figsize=(10, 6.4),
+    )
+    sns.lineplot(data=data, x=x, y=y, hue="algorithm", marker="o", errorbar="sd", ax=top_axis)
+    sns.lineplot(data=data, x=x, y=y, hue="algorithm", marker="o", errorbar="sd", ax=bottom_axis)
+
+    top_axis.set_ylim(*_top_ylim(data, y, upper_min))
+    bottom_axis.set_ylim(0, lower_max)
+    top_axis.set_title(title)
+    top_axis.set_xlabel("")
+    top_axis.set_ylabel(ylabel)
+    bottom_axis.set_xlabel(_label(x))
+    bottom_axis.set_ylabel(ylabel)
+    top_axis.spines["bottom"].set_visible(False)
+    bottom_axis.spines["top"].set_visible(False)
+    top_axis.legend(title="Algorithm", loc="best")
+    bottom_axis.legend_.remove()
+    _add_break_marks(top_axis, bottom_axis)
+    figure.subplots_adjust(left=0.10, right=0.97, bottom=0.16, top=0.90, hspace=0.06)
+    figure.savefig(output, dpi=FIGURE_DPI)
+    plt.close(figure)
 
 
 def _save_barplot(
@@ -206,7 +357,10 @@ def _save_factor_figures(
         plot_data = ok.dropna(subset=[factor, y])
         if plot_data.empty:
             continue
-        _save_lineplot(plot_data, factor, y, title, ylabel, path)
+        if y in {"accuracy", "runtime_seconds"}:
+            _save_broken_lineplot(plot_data, factor, y, title, ylabel, path)
+        else:
+            _save_lineplot(plot_data, factor, y, title, ylabel, path)
         specs.append(FigureSpec(path, title, description))
     return specs
 
@@ -236,7 +390,7 @@ def create_figures(results_csv: Path, output_dir: Path) -> list[FigureSpec]:
             .sort_values(["accuracy", "runtime_seconds"], ascending=[False, True])
         )
         accuracy_summary = figures_dir / "summary_accuracy_by_algorithm.png"
-        _save_barplot(
+        _save_broken_barplot(
             summary,
             "algorithm",
             "accuracy",
@@ -253,7 +407,7 @@ def create_figures(results_csv: Path, output_dir: Path) -> list[FigureSpec]:
         )
 
         runtime_summary = figures_dir / "summary_runtime_by_algorithm.png"
-        _save_barplot(
+        _save_broken_barplot(
             summary,
             "algorithm",
             "runtime_seconds",
