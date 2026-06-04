@@ -114,6 +114,52 @@ def _save_lineplot(
     plt.close()
 
 
+def _save_log_lineplot(
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    title: str,
+    ylabel: str,
+    output: Path,
+) -> None:
+    plot_data = data[data[y] > 0]
+    if plot_data.empty:
+        return
+    plt.figure()
+    sns.lineplot(data=plot_data, x=x, y=y, hue="algorithm", marker="o", errorbar=None)
+    plt.yscale("log")
+    plt.title(title)
+    plt.xlabel(_label(x))
+    plt.ylabel(ylabel)
+    plt.legend(title="Algorithm", loc="best")
+    plt.tight_layout()
+    plt.savefig(output, dpi=FIGURE_DPI)
+    plt.close()
+
+
+def _save_log_barplot(
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    title: str,
+    ylabel: str,
+    output: Path,
+) -> None:
+    plot_data = data[data[y] > 0]
+    if plot_data.empty:
+        return
+    plt.figure()
+    sns.barplot(data=plot_data, x=x, y=y)
+    plt.yscale("log")
+    plt.title(title)
+    plt.xlabel(_label(x))
+    plt.ylabel(ylabel)
+    plt.xticks(rotation=25, ha="right")
+    plt.tight_layout()
+    plt.savefig(output, dpi=FIGURE_DPI)
+    plt.close()
+
+
 def _runtime_break(values: pd.Series) -> tuple[float, float] | None:
     positive = values.dropna()
     positive = positive[positive > 0].sort_values()
@@ -330,41 +376,65 @@ def _varied_factors(data: pd.DataFrame) -> list[str]:
     ]
 
 
+def _filter_factor_slice(data: pd.DataFrame, factor: str) -> tuple[pd.DataFrame, str]:
+    filtered = data.copy()
+    fixed_parts = []
+    for column in _varied_factors(data):
+        if column == factor:
+            continue
+        max_value = filtered[column].dropna().max()
+        filtered = filtered[filtered[column] == max_value]
+        fixed_parts.append(f"{_label(column)}={max_value:g}")
+    if not fixed_parts:
+        return filtered, "other recorded factors fixed at their only observed values"
+    return filtered, "fixed " + ", ".join(fixed_parts)
+
+
 def _save_factor_figures(
     ok: pd.DataFrame,
     factor: str,
     figures_dir: Path,
 ) -> list[FigureSpec]:
     specs: list[FigureSpec] = []
+    factor_data, fixed_note = _filter_factor_slice(ok, factor)
     outputs = [
         (
             "accuracy",
             "Accuracy",
             f"accuracy_by_{factor}.png",
             f"Accuracy by {_label(factor)}",
-            f"Shows how reconstruction accuracy changes as {_label(factor).lower()} changes.",
+            f"Shows how reconstruction accuracy changes as {_label(factor).lower()} changes with {fixed_note}.",
         ),
         (
             "runtime_seconds",
             "Runtime (seconds)",
             f"runtime_by_{factor}.png",
             f"Runtime by {_label(factor)}",
-            f"Shows how execution time changes as {_label(factor).lower()} changes.",
+            f"Shows how execution time changes as {_label(factor).lower()} changes with {fixed_note}.",
+        ),
+        (
+            "runtime_seconds",
+            "Runtime (seconds, log scale)",
+            f"runtime_log_by_{factor}.png",
+            f"Runtime by {_label(factor)} (Log Scale)",
+            f"Shows runtime changes on a log scale with {fixed_note}.",
         ),
         (
             "peak_memory_mb",
             "Peak Memory (MB)",
             f"memory_by_{factor}.png",
             f"Peak Memory by {_label(factor)}",
-            f"Shows how peak memory usage changes as {_label(factor).lower()} changes.",
+            f"Shows how peak memory usage changes as {_label(factor).lower()} changes with {fixed_note}.",
         ),
     ]
     for y, ylabel, filename, title, description in outputs:
         path = figures_dir / filename
-        plot_data = ok.dropna(subset=[factor, y])
+        plot_data = factor_data.dropna(subset=[factor, y])
         if plot_data.empty:
             continue
-        if y in {"accuracy", "runtime_seconds", "peak_memory_mb"}:
+        if filename.startswith("runtime_log_"):
+            _save_log_lineplot(plot_data, factor, y, title, ylabel, path)
+        elif y in {"accuracy", "runtime_seconds", "peak_memory_mb"}:
             _save_broken_lineplot(plot_data, factor, y, title, ylabel, path)
         else:
             _save_lineplot(plot_data, factor, y, title, ylabel, path)
@@ -430,6 +500,23 @@ def create_figures(results_csv: Path, output_dir: Path) -> list[FigureSpec]:
                 runtime_summary,
                 "Mean Runtime by Algorithm",
                 "Compares average runtime across all successful runs.",
+            )
+        )
+
+        runtime_log_summary = figures_dir / "summary_runtime_log_by_algorithm.png"
+        _save_log_barplot(
+            summary,
+            "algorithm",
+            "runtime_seconds",
+            "Mean Runtime by Algorithm (Log Scale)",
+            "Mean Runtime (seconds, log scale)",
+            runtime_log_summary,
+        )
+        figures.append(
+            FigureSpec(
+                runtime_log_summary,
+                "Mean Runtime by Algorithm (Log Scale)",
+                "Compares average runtime on a log scale so one slow algorithm does not compress the others.",
             )
         )
 
