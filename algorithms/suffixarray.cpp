@@ -20,6 +20,7 @@ using namespace std;
 static string reference;
 static int reference_length = 0;
 
+// suffix array 생성
 vector<int> build_suffix_array(const string& text) {
     // sentinel(우선순위 최상) 문자 추가
     string s = text;
