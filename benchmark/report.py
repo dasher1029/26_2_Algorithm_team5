@@ -394,6 +394,9 @@ def _save_factor_figures(
     ok: pd.DataFrame,
     factor: str,
     figures_dir: Path,
+    filename_prefix: str = "",
+    title_suffix: str = "",
+    description_suffix: str = "",
 ) -> list[FigureSpec]:
     specs: list[FigureSpec] = []
     factor_data, fixed_note = _filter_factor_slice(ok, factor)
@@ -401,30 +404,30 @@ def _save_factor_figures(
         (
             "accuracy",
             "Accuracy",
-            f"accuracy_by_{factor}.png",
-            f"Accuracy by {_label(factor)}",
-            f"Shows how reconstruction accuracy changes as {_label(factor).lower()} changes with {fixed_note}.",
+            f"{filename_prefix}accuracy_by_{factor}.png",
+            f"Accuracy by {_label(factor)}{title_suffix}",
+            f"Shows how reconstruction accuracy changes as {_label(factor).lower()} changes with {fixed_note}.{description_suffix}",
         ),
         (
             "runtime_seconds",
             "Runtime (seconds)",
-            f"runtime_by_{factor}.png",
-            f"Runtime by {_label(factor)}",
-            f"Shows how execution time changes as {_label(factor).lower()} changes with {fixed_note}.",
+            f"{filename_prefix}runtime_by_{factor}.png",
+            f"Runtime by {_label(factor)}{title_suffix}",
+            f"Shows how execution time changes as {_label(factor).lower()} changes with {fixed_note}.{description_suffix}",
         ),
         (
             "runtime_seconds",
             "Runtime (seconds, log scale)",
-            f"runtime_log_by_{factor}.png",
-            f"Runtime by {_label(factor)} (Log Scale)",
-            f"Shows runtime changes on a log scale with {fixed_note}.",
+            f"{filename_prefix}runtime_log_by_{factor}.png",
+            f"Runtime by {_label(factor)} (Log Scale){title_suffix}",
+            f"Shows runtime changes on a log scale with {fixed_note}.{description_suffix}",
         ),
         (
             "peak_memory_mb",
             "Peak Memory (MB)",
-            f"memory_by_{factor}.png",
-            f"Peak Memory by {_label(factor)}",
-            f"Shows how peak memory usage changes as {_label(factor).lower()} changes with {fixed_note}.",
+            f"{filename_prefix}memory_by_{factor}.png",
+            f"Peak Memory by {_label(factor)}{title_suffix}",
+            f"Shows how peak memory usage changes as {_label(factor).lower()} changes with {fixed_note}.{description_suffix}",
         ),
     ]
     for y, ylabel, filename, title, description in outputs:
@@ -442,17 +445,14 @@ def _save_factor_figures(
     return specs
 
 
-def create_figures(results_csv: Path, output_dir: Path) -> list[FigureSpec]:
-    _set_style()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    data = _numeric_columns(pd.read_csv(results_csv))
-    figures_dir = output_dir / "figures"
+def _create_figure_set(
+    data: pd.DataFrame,
+    figures_dir: Path,
+    filename_prefix: str = "",
+    title_suffix: str = "",
+    description_suffix: str = "",
+) -> list[FigureSpec]:
     figures_dir.mkdir(parents=True, exist_ok=True)
-    for old_figure in figures_dir.glob("*.png"):
-        old_figure.unlink()
-
-    if data.empty:
-        return []
 
     ok = data[data["status"] == "ok"].copy()
     figures: list[FigureSpec] = []
@@ -469,54 +469,54 @@ def create_figures(results_csv: Path, output_dir: Path) -> list[FigureSpec]:
             .agg(**summary_aggregations)
             .sort_values(["accuracy", "runtime_seconds"], ascending=[False, True])
         )
-        accuracy_summary = figures_dir / "summary_accuracy_by_algorithm.png"
+        accuracy_summary = figures_dir / f"{filename_prefix}summary_accuracy_by_algorithm.png"
         _save_broken_barplot(
             summary,
             "algorithm",
             "accuracy",
-            "Mean Accuracy by Algorithm",
+            f"Mean Accuracy by Algorithm{title_suffix}",
             "Mean Accuracy",
             accuracy_summary,
         )
         figures.append(
             FigureSpec(
                 accuracy_summary,
-                "Mean Accuracy by Algorithm",
-                "Compares average accuracy across all successful runs.",
+                f"Mean Accuracy by Algorithm{title_suffix}",
+                f"Compares average accuracy across all successful runs.{description_suffix}",
             )
         )
 
-        runtime_summary = figures_dir / "summary_runtime_by_algorithm.png"
+        runtime_summary = figures_dir / f"{filename_prefix}summary_runtime_by_algorithm.png"
         _save_broken_barplot(
             summary,
             "algorithm",
             "runtime_seconds",
-            "Mean Runtime by Algorithm",
+            f"Mean Runtime by Algorithm{title_suffix}",
             "Mean Runtime (seconds)",
             runtime_summary,
         )
         figures.append(
             FigureSpec(
                 runtime_summary,
-                "Mean Runtime by Algorithm",
-                "Compares average runtime across all successful runs.",
+                f"Mean Runtime by Algorithm{title_suffix}",
+                f"Compares average runtime across all successful runs.{description_suffix}",
             )
         )
 
-        runtime_log_summary = figures_dir / "summary_runtime_log_by_algorithm.png"
+        runtime_log_summary = figures_dir / f"{filename_prefix}summary_runtime_log_by_algorithm.png"
         _save_log_barplot(
             summary,
             "algorithm",
             "runtime_seconds",
-            "Mean Runtime by Algorithm (Log Scale)",
+            f"Mean Runtime by Algorithm (Log Scale){title_suffix}",
             "Mean Runtime (seconds, log scale)",
             runtime_log_summary,
         )
         figures.append(
             FigureSpec(
                 runtime_log_summary,
-                "Mean Runtime by Algorithm (Log Scale)",
-                "Compares average runtime on a log scale so one slow algorithm does not compress the others.",
+                f"Mean Runtime by Algorithm (Log Scale){title_suffix}",
+                f"Compares average runtime on a log scale so one slow algorithm does not compress the others.{description_suffix}",
             )
         )
 
@@ -525,45 +525,82 @@ def create_figures(results_csv: Path, output_dir: Path) -> list[FigureSpec]:
         else:
             memory_summary_data = pd.DataFrame()
         if not memory_summary_data.empty:
-            memory_summary = figures_dir / "summary_memory_by_algorithm.png"
+            memory_summary = figures_dir / f"{filename_prefix}summary_memory_by_algorithm.png"
             _save_broken_barplot(
                 memory_summary_data,
                 "algorithm",
                 "peak_memory_mb",
-                "Mean Peak Memory by Algorithm",
+                f"Mean Peak Memory by Algorithm{title_suffix}",
                 "Mean Peak Memory (MB)",
                 memory_summary,
             )
             figures.append(
                 FigureSpec(
                     memory_summary,
-                    "Mean Peak Memory by Algorithm",
-                    "Compares average peak memory usage across all successful runs.",
+                    f"Mean Peak Memory by Algorithm{title_suffix}",
+                    f"Compares average peak memory usage across all successful runs.{description_suffix}",
                 )
             )
 
         for factor in _varied_factors(ok):
-            figures.extend(_save_factor_figures(ok, factor, figures_dir))
+            figures.extend(
+                _save_factor_figures(
+                    ok,
+                    factor,
+                    figures_dir,
+                    filename_prefix=filename_prefix,
+                    title_suffix=title_suffix,
+                    description_suffix=description_suffix,
+                )
+            )
 
-        scatter_path = figures_dir / "accuracy_vs_runtime.png"
+        scatter_path = figures_dir / f"{filename_prefix}accuracy_vs_runtime.png"
         _save_scatter(ok, scatter_path)
         figures.append(
             FigureSpec(
                 scatter_path,
-                "Accuracy vs Runtime",
-                "Shows the tradeoff between speed and accuracy for successful runs.",
+                f"Accuracy vs Runtime{title_suffix}",
+                f"Shows the tradeoff between speed and accuracy for successful runs.{description_suffix}",
             )
         )
 
-    failure_path = figures_dir / "failure_rate_by_algorithm.png"
+    failure_path = figures_dir / f"{filename_prefix}failure_rate_by_algorithm.png"
     _save_failure_rate(data, failure_path)
     figures.append(
         FigureSpec(
             failure_path,
-            "Failure Rate by Algorithm",
-            "Shows the percentage of crash or timeout rows for each algorithm.",
+            f"Failure Rate by Algorithm{title_suffix}",
+            f"Shows the percentage of crash or timeout rows for each algorithm.{description_suffix}",
         )
     )
+    return figures
+
+
+def create_figures(results_csv: Path, output_dir: Path) -> list[FigureSpec]:
+    _set_style()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    data = _numeric_columns(pd.read_csv(results_csv))
+    figures_dir = output_dir / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    for old_figure in figures_dir.glob("*.png"):
+        old_figure.unlink()
+
+    if data.empty:
+        return []
+
+    figures = _create_figure_set(data, figures_dir)
+
+    without_kmp = data[data["algorithm"] != "kmp_exact_match"].copy()
+    if not without_kmp.empty and without_kmp["algorithm"].nunique() < data["algorithm"].nunique():
+        figures.extend(
+            _create_figure_set(
+                without_kmp,
+                figures_dir,
+                filename_prefix="without_kmp_",
+                title_suffix=" (without KMP)",
+                description_suffix=" KMP is excluded to make the other algorithms easier to compare.",
+            )
+        )
     return figures
 
 
