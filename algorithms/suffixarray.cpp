@@ -20,17 +20,18 @@ using namespace std;
 static string reference;
 static int reference_length = 0;
 
-// reference 에 sentinel('\1', 'A'~'T' 보다 작음)을 붙여 표준 suffix array 를 만든다.
-// 반환 배열 크기는 reference.size()+1 이며 SA[0] 은 sentinel suffix 다.
 vector<int> build_suffix_array(const string& text) {
+    // sentinel(우선순위 최상) 문자 추가
     string s = text;
     s.push_back('\1');
     int n = (int)s.size();
     const int ALPHA = 256;
 
+    // nsa, nrnk는 prefix doubling에서 다음 단계로 넘어갈 때 쓰임. rnk=nrnk로 한번에 교체하는 식임
     vector<int> sa(n), rnk(n), nsa(n), nrnk(n);
     vector<int> cnt(max(n, ALPHA), 0);
 
+    // 길이 1 기준 초기 정렬 
     for (int i = 0; i < n; ++i) cnt[(unsigned char)s[i]]++;
     for (int i = 1; i < ALPHA; ++i) cnt[i] += cnt[i - 1];
     for (int i = 0; i < n; ++i) sa[--cnt[(unsigned char)s[i]]] = i;
@@ -42,13 +43,12 @@ vector<int> build_suffix_array(const string& text) {
         rnk[sa[i]] = classes - 1;
     }
 
+    // 길이 k(2의 거듭제곱) 기준 초기 정렬
     for (int k = 1; k < n; k <<= 1) {
-        // 두 번째 키(i+k 의 rank)를 기준으로 한 번 정렬한 효과를 cyclic shift 로 얻는다.
         for (int i = 0; i < n; ++i) {
             nsa[i] = sa[i] - k;
             if (nsa[i] < 0) nsa[i] += n;
         }
-        // 첫 번째 키(rank)로 counting sort. nsa 가 두 번째 키 순서를 유지하므로 안정 정렬이면 충분.
         fill(cnt.begin(), cnt.begin() + classes, 0);
         for (int i = 0; i < n; ++i) cnt[rnk[nsa[i]]]++;
         for (int i = 1; i < classes; ++i) cnt[i] += cnt[i - 1];
@@ -70,8 +70,7 @@ vector<int> build_suffix_array(const string& text) {
     return sa;
 }
 
-// reference[pos..] 의 앞부분을 pattern 과 사전식 비교한다. -1: 작음, 0: pattern 이 prefix, 1: 큼.
-// reference 가 먼저 끝나면(짧으면) 작은 것으로 본다 -> sentinel suffix 도 자연히 제외된다.
+// seed와 reference genome 매칭
 int compare_at(int pos, const string& pattern) {
     for (int i = 0; i < (int)pattern.size(); ++i) {
         if (pos + i >= reference_length) return -1;
@@ -82,7 +81,7 @@ int compare_at(int pos, const string& pattern) {
     return 0;
 }
 
-// pattern 을 prefix 로 갖는 suffix 들의 SA 구간 [left, right) 을 binary search 로 찾는다.
+// seed와 정확하기 일치하는 suffix 구간 탐색
 pair<int, int> find_range(const vector<int>& sa, const string& pattern) {
     int n = (int)sa.size();
     int lo = 0, hi = n;
@@ -101,6 +100,7 @@ pair<int, int> find_range(const vector<int>& sa, const string& pattern) {
     return {left, lo};
 }
 
+// 염기 문자를 배열 인덱스로 변환 
 int base_index(char base) {
     if (base == 'A') return 0;
     if (base == 'C') return 1;
@@ -109,10 +109,12 @@ int base_index(char base) {
     return -1;
 }
 
+// 다시 ACGT로 변환(최종 결과물 복원)
 char index_base(int index) {
     static const string bases = "ACGT";
     return bases[index];
 }
+
 
 map<string, string> read_metadata(int metadata_count) {
     map<string, string> metadata;
@@ -136,7 +138,7 @@ int metadata_int(const map<string, string>& metadata, const string& key, int def
     return stoi(found->second);
 }
 
-// read 를 allowed_mismatches+1 개의 seed (시작 offset, 부분 문자열)로 균등 분할한다.
+// read 를 allowed_mismatches+1 개의 seed (시작 offset, 부분 문자열)로 균등하게 분할
 vector<pair<int, string>> split_seeds(const string& read, int allowed_mismatches) {
     int segment_count = max(1, allowed_mismatches + 1);
     int base_size = (int)read.size() / segment_count;
@@ -164,8 +166,7 @@ int mismatch_count(const string& read, int start) {
     return mismatches;
 }
 
-// 각 seed 의 정확 매칭 위치를 suffix array 에서 찾고, read 전체 mismatch 가 가장 적은
-// 후보 시작 위치를 고른다. allowed_mismatches 를 넘으면 매핑 실패(-1).
+// 각각의 read를 reference genome에 매핑함
 int find_best_position(const vector<int>& sa, const string& read, int allowed_mismatches) {
     int best_start = -1;
     int best_mismatches = allowed_mismatches + 1;
@@ -196,7 +197,7 @@ int find_best_position(const vector<int>& sa, const string& read, int allowed_mi
     return -1;
 }
 
-// 위치별로 reference(1표) + 매핑된 read 들의 염기를 모아 다수결로 복원한다.
+// 위치별로 reference(1표) + 매핑된 read 들의 염기를 모아 다수결로 복원
 string build_consensus(const vector<pair<int, string>>& placements) {
     vector<vector<int>> counts(reference_length, vector<int>(4, 0));
     for (int i = 0; i < reference_length; ++i) {
