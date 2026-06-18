@@ -21,6 +21,8 @@ import seaborn as sns
 
 
 FIGURE_DPI = 180
+BROKEN_AXIS_RATIO = 8.0
+ACCURACY_BREAK_GAP = 0.15
 FACTOR_COLUMNS = [
     "reference_length",
     "read_length",
@@ -112,6 +114,201 @@ def _save_lineplot(
     plt.close()
 
 
+def _save_log_lineplot(
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    title: str,
+    ylabel: str,
+    output: Path,
+) -> None:
+    plot_data = data[data[y] > 0]
+    if plot_data.empty:
+        return
+    plt.figure()
+    sns.lineplot(data=plot_data, x=x, y=y, hue="algorithm", marker="o", errorbar=None)
+    plt.yscale("log")
+    plt.title(title)
+    plt.xlabel(_label(x))
+    plt.ylabel(ylabel)
+    plt.legend(title="Algorithm", loc="best")
+    plt.tight_layout()
+    plt.savefig(output, dpi=FIGURE_DPI)
+    plt.close()
+
+
+def _save_log_barplot(
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    title: str,
+    ylabel: str,
+    output: Path,
+) -> None:
+    plot_data = data[data[y] > 0]
+    if plot_data.empty:
+        return
+    plt.figure()
+    sns.barplot(data=plot_data, x=x, y=y)
+    plt.yscale("log")
+    plt.title(title)
+    plt.xlabel(_label(x))
+    plt.ylabel(ylabel)
+    plt.xticks(rotation=25, ha="right")
+    plt.tight_layout()
+    plt.savefig(output, dpi=FIGURE_DPI)
+    plt.close()
+
+
+def _runtime_break(values: pd.Series) -> tuple[float, float] | None:
+    positive = values.dropna()
+    positive = positive[positive > 0].sort_values()
+    if len(positive) < 3:
+        return None
+
+    best_low = 0.0
+    best_high = 0.0
+    best_ratio = 0.0
+    for index in range(len(positive) - 1):
+        low = float(positive.iloc[index])
+        high = float(positive.iloc[index + 1])
+        ratio = high / low
+        if ratio > best_ratio:
+            best_low = low
+            best_high = high
+            best_ratio = ratio
+
+    if best_low <= 0 or best_ratio < BROKEN_AXIS_RATIO:
+        return None
+    return best_low * 1.25, best_high * 0.85
+
+
+def _accuracy_break(values: pd.Series) -> tuple[float, float] | None:
+    scores = values.dropna()
+    scores = scores[(scores >= 0) & (scores <= 1)].sort_values()
+    if len(scores) < 3:
+        return None
+
+    best_low = 0.0
+    best_high = 0.0
+    best_gap = 0.0
+    for index in range(len(scores) - 1):
+        low = float(scores.iloc[index])
+        high = float(scores.iloc[index + 1])
+        gap = high - low
+        if gap > best_gap:
+            best_low = low
+            best_high = high
+            best_gap = gap
+
+    if best_gap < ACCURACY_BREAK_GAP:
+        return None
+    return min(best_low + 0.05, 0.95), max(best_high - 0.02, 0.0)
+
+
+def _axis_break(values: pd.Series, metric: str) -> tuple[float, float] | None:
+    if metric in {"runtime_seconds", "peak_memory_mb"}:
+        return _runtime_break(values)
+    if metric == "accuracy":
+        return _accuracy_break(values)
+    return None
+
+
+def _top_ylim(data: pd.DataFrame, y: str, upper_min: float) -> tuple[float, float]:
+    if y == "accuracy":
+        return upper_min, 1.02
+    return upper_min, float(data[y].max()) * 1.08
+
+
+def _add_break_marks(top_axis, bottom_axis) -> None:
+    kwargs = dict(marker=[(-1, -0.5), (1, 0.5)], markersize=11, linestyle="none", color="k", mec="k", mew=1)
+    top_axis.plot([0, 1], [0, 0], transform=top_axis.transAxes, clip_on=False, **kwargs)
+    bottom_axis.plot([0, 1], [1, 1], transform=bottom_axis.transAxes, clip_on=False, **kwargs)
+
+
+def _save_broken_barplot(
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    title: str,
+    ylabel: str,
+    output: Path,
+) -> None:
+    split = _axis_break(data[y], y)
+    if split is None:
+        _save_barplot(data, x, y, title, ylabel, output)
+        return
+
+    lower_max, upper_min = split
+    figure, (top_axis, bottom_axis) = plt.subplots(
+        2,
+        1,
+        sharex=True,
+        gridspec_kw={"height_ratios": [1, 2], "hspace": 0.05},
+        figsize=(10, 6.4),
+    )
+    sns.barplot(data=data, x=x, y=y, ax=top_axis)
+    sns.barplot(data=data, x=x, y=y, ax=bottom_axis)
+
+    top_axis.set_ylim(*_top_ylim(data, y, upper_min))
+    bottom_axis.set_ylim(0, lower_max)
+    top_axis.set_title(title)
+    top_axis.set_xlabel("")
+    top_axis.set_ylabel(ylabel)
+    bottom_axis.set_xlabel(_label(x))
+    bottom_axis.set_ylabel(ylabel)
+    top_axis.spines["bottom"].set_visible(False)
+    bottom_axis.spines["top"].set_visible(False)
+    bottom_axis.tick_params(axis="x", rotation=25)
+    for label in bottom_axis.get_xticklabels():
+        label.set_ha("right")
+    _add_break_marks(top_axis, bottom_axis)
+    figure.subplots_adjust(left=0.10, right=0.97, bottom=0.16, top=0.90, hspace=0.06)
+    figure.savefig(output, dpi=FIGURE_DPI)
+    plt.close(figure)
+
+
+def _save_broken_lineplot(
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    title: str,
+    ylabel: str,
+    output: Path,
+) -> None:
+    split = _axis_break(data[y], y)
+    if split is None:
+        _save_lineplot(data, x, y, title, ylabel, output)
+        return
+
+    lower_max, upper_min = split
+    figure, (top_axis, bottom_axis) = plt.subplots(
+        2,
+        1,
+        sharex=True,
+        gridspec_kw={"height_ratios": [1, 2], "hspace": 0.05},
+        figsize=(10, 6.4),
+    )
+    sns.lineplot(data=data, x=x, y=y, hue="algorithm", marker="o", errorbar="sd", ax=top_axis)
+    sns.lineplot(data=data, x=x, y=y, hue="algorithm", marker="o", errorbar="sd", ax=bottom_axis)
+
+    top_axis.set_ylim(*_top_ylim(data, y, upper_min))
+    bottom_axis.set_ylim(0, lower_max)
+    top_axis.set_title(title)
+    top_axis.set_xlabel("")
+    top_axis.set_ylabel(ylabel)
+    bottom_axis.set_xlabel(_label(x))
+    bottom_axis.set_ylabel(ylabel)
+    top_axis.spines["bottom"].set_visible(False)
+    bottom_axis.spines["top"].set_visible(False)
+    top_axis.legend(title="Algorithm", loc="best")
+    bottom_axis.legend_.remove()
+    _add_break_marks(top_axis, bottom_axis)
+    figure.subplots_adjust(left=0.10, right=0.97, bottom=0.16, top=0.90, hspace=0.06)
+    figure.savefig(output, dpi=FIGURE_DPI)
+    plt.close(figure)
+
+
 def _save_barplot(
     data: pd.DataFrame,
     x: str,
@@ -179,36 +376,204 @@ def _varied_factors(data: pd.DataFrame) -> list[str]:
     ]
 
 
+def _filter_factor_slice(data: pd.DataFrame, factor: str) -> tuple[pd.DataFrame, str]:
+    filtered = data.copy()
+    fixed_parts = []
+    for column in _varied_factors(data):
+        if column == factor:
+            continue
+        max_value = filtered[column].dropna().max()
+        filtered = filtered[filtered[column] == max_value]
+        fixed_parts.append(f"{_label(column)}={max_value:g}")
+    if not fixed_parts:
+        return filtered, "other recorded factors fixed at their only observed values"
+    return filtered, "fixed " + ", ".join(fixed_parts)
+
+
 def _save_factor_figures(
     ok: pd.DataFrame,
     factor: str,
     figures_dir: Path,
+    filename_prefix: str = "",
+    title_suffix: str = "",
+    description_suffix: str = "",
 ) -> list[FigureSpec]:
     specs: list[FigureSpec] = []
+    factor_data, fixed_note = _filter_factor_slice(ok, factor)
     outputs = [
         (
             "accuracy",
             "Accuracy",
-            f"accuracy_by_{factor}.png",
-            f"Accuracy by {_label(factor)}",
-            f"Shows how reconstruction accuracy changes as {_label(factor).lower()} changes.",
+            f"{filename_prefix}accuracy_by_{factor}.png",
+            f"Accuracy by {_label(factor)}{title_suffix}",
+            f"Shows how reconstruction accuracy changes as {_label(factor).lower()} changes with {fixed_note}.{description_suffix}",
         ),
         (
             "runtime_seconds",
             "Runtime (seconds)",
-            f"runtime_by_{factor}.png",
-            f"Runtime by {_label(factor)}",
-            f"Shows how execution time changes as {_label(factor).lower()} changes.",
+            f"{filename_prefix}runtime_by_{factor}.png",
+            f"Runtime by {_label(factor)}{title_suffix}",
+            f"Shows how execution time changes as {_label(factor).lower()} changes with {fixed_note}.{description_suffix}",
+        ),
+        (
+            "runtime_seconds",
+            "Runtime (seconds, log scale)",
+            f"{filename_prefix}runtime_log_by_{factor}.png",
+            f"Runtime by {_label(factor)} (Log Scale){title_suffix}",
+            f"Shows runtime changes on a log scale with {fixed_note}.{description_suffix}",
+        ),
+        (
+            "peak_memory_mb",
+            "Peak Memory (MB)",
+            f"{filename_prefix}memory_by_{factor}.png",
+            f"Peak Memory by {_label(factor)}{title_suffix}",
+            f"Shows how peak memory usage changes as {_label(factor).lower()} changes with {fixed_note}.{description_suffix}",
         ),
     ]
     for y, ylabel, filename, title, description in outputs:
         path = figures_dir / filename
-        plot_data = ok.dropna(subset=[factor, y])
+        plot_data = factor_data.dropna(subset=[factor, y])
         if plot_data.empty:
             continue
-        _save_lineplot(plot_data, factor, y, title, ylabel, path)
+        if filename.startswith("runtime_log_"):
+            _save_log_lineplot(plot_data, factor, y, title, ylabel, path)
+        elif y in {"accuracy", "runtime_seconds", "peak_memory_mb"}:
+            _save_broken_lineplot(plot_data, factor, y, title, ylabel, path)
+        else:
+            _save_lineplot(plot_data, factor, y, title, ylabel, path)
         specs.append(FigureSpec(path, title, description))
     return specs
+
+
+def _create_figure_set(
+    data: pd.DataFrame,
+    figures_dir: Path,
+    filename_prefix: str = "",
+    title_suffix: str = "",
+    description_suffix: str = "",
+) -> list[FigureSpec]:
+    figures_dir.mkdir(parents=True, exist_ok=True)
+
+    ok = data[data["status"] == "ok"].copy()
+    figures: list[FigureSpec] = []
+
+    if not ok.empty:
+        summary_aggregations = {
+            "accuracy": ("accuracy", "mean"),
+            "runtime_seconds": ("runtime_seconds", "mean"),
+        }
+        if "peak_memory_mb" in ok.columns:
+            summary_aggregations["peak_memory_mb"] = ("peak_memory_mb", "mean")
+        summary = (
+            ok.groupby("algorithm", as_index=False)
+            .agg(**summary_aggregations)
+            .sort_values(["accuracy", "runtime_seconds"], ascending=[False, True])
+        )
+        accuracy_summary = figures_dir / f"{filename_prefix}summary_accuracy_by_algorithm.png"
+        _save_broken_barplot(
+            summary,
+            "algorithm",
+            "accuracy",
+            f"Mean Accuracy by Algorithm{title_suffix}",
+            "Mean Accuracy",
+            accuracy_summary,
+        )
+        figures.append(
+            FigureSpec(
+                accuracy_summary,
+                f"Mean Accuracy by Algorithm{title_suffix}",
+                f"Compares average accuracy across all successful runs.{description_suffix}",
+            )
+        )
+
+        runtime_summary = figures_dir / f"{filename_prefix}summary_runtime_by_algorithm.png"
+        _save_broken_barplot(
+            summary,
+            "algorithm",
+            "runtime_seconds",
+            f"Mean Runtime by Algorithm{title_suffix}",
+            "Mean Runtime (seconds)",
+            runtime_summary,
+        )
+        figures.append(
+            FigureSpec(
+                runtime_summary,
+                f"Mean Runtime by Algorithm{title_suffix}",
+                f"Compares average runtime across all successful runs.{description_suffix}",
+            )
+        )
+
+        runtime_log_summary = figures_dir / f"{filename_prefix}summary_runtime_log_by_algorithm.png"
+        _save_log_barplot(
+            summary,
+            "algorithm",
+            "runtime_seconds",
+            f"Mean Runtime by Algorithm (Log Scale){title_suffix}",
+            "Mean Runtime (seconds, log scale)",
+            runtime_log_summary,
+        )
+        figures.append(
+            FigureSpec(
+                runtime_log_summary,
+                f"Mean Runtime by Algorithm (Log Scale){title_suffix}",
+                f"Compares average runtime on a log scale so one slow algorithm does not compress the others.{description_suffix}",
+            )
+        )
+
+        if "peak_memory_mb" in summary.columns:
+            memory_summary_data = summary.dropna(subset=["peak_memory_mb"])
+        else:
+            memory_summary_data = pd.DataFrame()
+        if not memory_summary_data.empty:
+            memory_summary = figures_dir / f"{filename_prefix}summary_memory_by_algorithm.png"
+            _save_broken_barplot(
+                memory_summary_data,
+                "algorithm",
+                "peak_memory_mb",
+                f"Mean Peak Memory by Algorithm{title_suffix}",
+                "Mean Peak Memory (MB)",
+                memory_summary,
+            )
+            figures.append(
+                FigureSpec(
+                    memory_summary,
+                    f"Mean Peak Memory by Algorithm{title_suffix}",
+                    f"Compares average peak memory usage across all successful runs.{description_suffix}",
+                )
+            )
+
+        for factor in _varied_factors(ok):
+            figures.extend(
+                _save_factor_figures(
+                    ok,
+                    factor,
+                    figures_dir,
+                    filename_prefix=filename_prefix,
+                    title_suffix=title_suffix,
+                    description_suffix=description_suffix,
+                )
+            )
+
+        scatter_path = figures_dir / f"{filename_prefix}accuracy_vs_runtime.png"
+        _save_scatter(ok, scatter_path)
+        figures.append(
+            FigureSpec(
+                scatter_path,
+                f"Accuracy vs Runtime{title_suffix}",
+                f"Shows the tradeoff between speed and accuracy for successful runs.{description_suffix}",
+            )
+        )
+
+    failure_path = figures_dir / f"{filename_prefix}failure_rate_by_algorithm.png"
+    _save_failure_rate(data, failure_path)
+    figures.append(
+        FigureSpec(
+            failure_path,
+            f"Failure Rate by Algorithm{title_suffix}",
+            f"Shows the percentage of crash or timeout rows for each algorithm.{description_suffix}",
+        )
+    )
+    return figures
 
 
 def create_figures(results_csv: Path, output_dir: Path) -> list[FigureSpec]:
@@ -223,74 +588,19 @@ def create_figures(results_csv: Path, output_dir: Path) -> list[FigureSpec]:
     if data.empty:
         return []
 
-    ok = data[data["status"] == "ok"].copy()
-    figures: list[FigureSpec] = []
+    figures = _create_figure_set(data, figures_dir)
 
-    if not ok.empty:
-        summary = (
-            ok.groupby("algorithm", as_index=False)
-            .agg(
-                accuracy=("accuracy", "mean"),
-                runtime_seconds=("runtime_seconds", "mean"),
-            )
-            .sort_values(["accuracy", "runtime_seconds"], ascending=[False, True])
-        )
-        accuracy_summary = figures_dir / "summary_accuracy_by_algorithm.png"
-        _save_barplot(
-            summary,
-            "algorithm",
-            "accuracy",
-            "Mean Accuracy by Algorithm",
-            "Mean Accuracy",
-            accuracy_summary,
-        )
-        figures.append(
-            FigureSpec(
-                accuracy_summary,
-                "Mean Accuracy by Algorithm",
-                "Compares average accuracy across all successful runs.",
+    without_kmp = data[data["algorithm"] != "kmp_exact_match"].copy()
+    if not without_kmp.empty and without_kmp["algorithm"].nunique() < data["algorithm"].nunique():
+        figures.extend(
+            _create_figure_set(
+                without_kmp,
+                figures_dir,
+                filename_prefix="without_kmp_",
+                title_suffix=" (without KMP)",
+                description_suffix=" KMP is excluded to make the other algorithms easier to compare.",
             )
         )
-
-        runtime_summary = figures_dir / "summary_runtime_by_algorithm.png"
-        _save_barplot(
-            summary,
-            "algorithm",
-            "runtime_seconds",
-            "Mean Runtime by Algorithm",
-            "Mean Runtime (seconds)",
-            runtime_summary,
-        )
-        figures.append(
-            FigureSpec(
-                runtime_summary,
-                "Mean Runtime by Algorithm",
-                "Compares average runtime across all successful runs.",
-            )
-        )
-
-        for factor in _varied_factors(ok):
-            figures.extend(_save_factor_figures(ok, factor, figures_dir))
-
-        scatter_path = figures_dir / "accuracy_vs_runtime.png"
-        _save_scatter(ok, scatter_path)
-        figures.append(
-            FigureSpec(
-                scatter_path,
-                "Accuracy vs Runtime",
-                "Shows the tradeoff between speed and accuracy for successful runs.",
-            )
-        )
-
-    failure_path = figures_dir / "failure_rate_by_algorithm.png"
-    _save_failure_rate(data, failure_path)
-    figures.append(
-        FigureSpec(
-            failure_path,
-            "Failure Rate by Algorithm",
-            "Shows the percentage of crash or timeout rows for each algorithm.",
-        )
-    )
     return figures
 
 

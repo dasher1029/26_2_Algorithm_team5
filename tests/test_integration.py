@@ -8,8 +8,41 @@ from benchmark.run import run_benchmark
 
 def test_quick_benchmark_outputs_csv_figures_and_html(tmp_path):
     output = tmp_path / "results"
+    algorithms = tmp_path / "algorithms"
+    algorithms.mkdir()
     reference = tmp_path / "reference.txt"
     reference.write_text("ATCG" * 30, encoding="utf-8")
+    (algorithms / "trivial_concat.cpp").write_text(
+        """
+#include <iostream>
+#include <string>
+
+using namespace std;
+
+int main() {
+    int reference_length = 0;
+    string reference;
+    int read_count = 0;
+    cin >> reference_length >> reference >> read_count;
+
+    string reconstruction;
+    for (int i = 0; i < read_count; ++i) {
+        string read;
+        cin >> read;
+        reconstruction += read;
+    }
+
+    if ((int)reconstruction.size() < reference_length) {
+        reconstruction.resize(reference_length, 'A');
+    } else {
+        reconstruction.resize(reference_length);
+    }
+    cout << reconstruction << "\\n";
+    return 0;
+}
+""".strip(),
+        encoding="utf-8",
+    )
     config = {
         "experiment": {
             "alphabet": "ATCG",
@@ -25,7 +58,7 @@ def test_quick_benchmark_outputs_csv_figures_and_html(tmp_path):
         }
     }
 
-    results_csv = run_benchmark(config, tmp_path / "algorithms", output, quick=True)
+    results_csv = run_benchmark(config, algorithms, output, quick=True, build_dir=tmp_path / "build")
 
     assert results_csv.exists()
     assert (output / "report.html").exists()
@@ -95,5 +128,5 @@ int main() {
     with results_csv.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
 
-    assert [row["algorithm"] for row in rows] == ["trivial_concat", "repeat_first_read"]
-    assert rows[1]["status"] == "ok"
+    assert [row["algorithm"] for row in rows] == ["repeat_first_read"]
+    assert rows[0]["status"] == "ok"
